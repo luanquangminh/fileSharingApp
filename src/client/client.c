@@ -686,27 +686,27 @@ void* client_admin_list_users(ClientConnection* conn) {
     cJSON_Delete(request);
 
     // Receive response
-    Packet res_pkt;
-    if (packet_recv(conn->socket_fd, &res_pkt) < 0) {
+    Packet* res_pkt = net_recv_packet(conn->socket_fd);
+    if (!res_pkt) {
         fprintf(stderr, "Failed to receive response\n");
         return NULL;
     }
 
-    if (res_pkt.command == CMD_ERROR) {
-        cJSON* error_json = cJSON_Parse(res_pkt.payload);
+    if (res_pkt->command == CMD_ERROR) {
+        cJSON* error_json = cJSON_Parse(res_pkt->payload);
         if (error_json) {
             cJSON* msg = cJSON_GetObjectItem(error_json, "message");
             fprintf(stderr, "Error: %s\n", cJSON_GetStringValue(msg));
             cJSON_Delete(error_json);
         }
-        packet_free(&res_pkt);
+        packet_free(res_pkt);
         return NULL;
     }
 
     // Parse and return response
-    cJSON* response_json = cJSON_Parse(res_pkt.payload);
-    packet_free(&res_pkt);
-    
+    cJSON* response_json = cJSON_Parse(res_pkt->payload);
+    packet_free(res_pkt);
+
     return response_json;  // Caller must free with cJSON_Delete()
 }
 
@@ -731,25 +731,25 @@ int client_admin_create_user(ClientConnection* conn, const char* username, const
     cJSON_Delete(request);
 
     // Receive response
-    Packet res_pkt;
-    if (packet_recv(conn->socket_fd, &res_pkt) < 0) {
+    Packet* res_pkt = net_recv_packet(conn->socket_fd);
+    if (!res_pkt) {
         fprintf(stderr, "Failed to receive response\n");
         return -1;
     }
 
-    if (res_pkt.command == CMD_ERROR) {
-        cJSON* error_json = cJSON_Parse(res_pkt.payload);
+    if (res_pkt->command == CMD_ERROR) {
+        cJSON* error_json = cJSON_Parse(res_pkt->payload);
         if (error_json) {
             cJSON* msg = cJSON_GetObjectItem(error_json, "message");
             fprintf(stderr, "Error: %s\n", cJSON_GetStringValue(msg));
             cJSON_Delete(error_json);
         }
-        packet_free(&res_pkt);
+        packet_free(res_pkt);
         return -1;
     }
 
     // Parse response to get new user_id
-    cJSON* response_json = cJSON_Parse(res_pkt.payload);
+    cJSON* response_json = cJSON_Parse(res_pkt->payload);
     int user_id = -1;
     if (response_json) {
         cJSON* user_id_item = cJSON_GetObjectItem(response_json, "user_id");
@@ -758,8 +758,8 @@ int client_admin_create_user(ClientConnection* conn, const char* username, const
         }
         cJSON_Delete(response_json);
     }
-    
-    packet_free(&res_pkt);
+
+    packet_free(res_pkt);
     return user_id;
 }
 
@@ -772,34 +772,34 @@ int client_admin_delete_user(ClientConnection* conn, int user_id) {
     // Build request
     cJSON* request = cJSON_CreateObject();
     cJSON_AddNumberToObject(request, "user_id", user_id);
-    
+
     char* request_str = cJSON_PrintUnformatted(request);
     Packet* req_pkt = packet_create(CMD_ADMIN_DELETE_USER, request_str, strlen(request_str));
     packet_send(conn->socket_fd, req_pkt);
-    
+
     free(request_str);
     packet_free(req_pkt);
     cJSON_Delete(request);
 
     // Receive response
-    Packet res_pkt;
-    if (packet_recv(conn->socket_fd, &res_pkt) < 0) {
+    Packet* res_pkt = net_recv_packet(conn->socket_fd);
+    if (!res_pkt) {
         fprintf(stderr, "Failed to receive response\n");
         return -1;
     }
 
-    if (res_pkt.command == CMD_ERROR) {
-        cJSON* error_json = cJSON_Parse(res_pkt.payload);
+    if (res_pkt->command == CMD_ERROR) {
+        cJSON* error_json = cJSON_Parse(res_pkt->payload);
         if (error_json) {
             cJSON* msg = cJSON_GetObjectItem(error_json, "message");
             fprintf(stderr, "Error: %s\n", cJSON_GetStringValue(msg));
             cJSON_Delete(error_json);
         }
-        packet_free(&res_pkt);
+        packet_free(res_pkt);
         return -1;
     }
 
-    packet_free(&res_pkt);
+    packet_free(res_pkt);
     return 0;  // Success
 }
 
@@ -814,33 +814,33 @@ int client_admin_update_user(ClientConnection* conn, int user_id, int is_admin, 
     cJSON_AddNumberToObject(request, "user_id", user_id);
     cJSON_AddNumberToObject(request, "is_admin", is_admin);
     cJSON_AddNumberToObject(request, "is_active", is_active);
-    
+
     char* request_str = cJSON_PrintUnformatted(request);
     Packet* req_pkt = packet_create(CMD_ADMIN_UPDATE_USER, request_str, strlen(request_str));
     packet_send(conn->socket_fd, req_pkt);
-    
+
     free(request_str);
     packet_free(req_pkt);
     cJSON_Delete(request);
 
     // Receive response
-    Packet res_pkt;
-    if (packet_recv(conn->socket_fd, &res_pkt) < 0) {
+    Packet* res_pkt = net_recv_packet(conn->socket_fd);
+    if (!res_pkt) {
         fprintf(stderr, "Failed to receive response\n");
         return -1;
     }
 
-    if (res_pkt.command == CMD_ERROR) {
-        cJSON* error_json = cJSON_Parse(res_pkt.payload);
+    if (res_pkt->command == CMD_ERROR) {
+        cJSON* error_json = cJSON_Parse(res_pkt->payload);
         if (error_json) {
             cJSON* msg = cJSON_GetObjectItem(error_json, "message");
             fprintf(stderr, "Error: %s\n", cJSON_GetStringValue(msg));
             cJSON_Delete(error_json);
         }
-        packet_free(&res_pkt);
+        packet_free(res_pkt);
         return -1;
     }
 
-    packet_free(&res_pkt);
+    packet_free(res_pkt);
     return 0;  // Success
 }

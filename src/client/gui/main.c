@@ -4,73 +4,56 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Global flag to distinguish logout from quit
+gboolean g_logout_requested = FALSE;
+
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
 
-    // Show login dialog
-    GtkWidget *login_dialog = create_login_dialog();
-    gint response = gtk_dialog_run(GTK_DIALOG(login_dialog));
+    // Main login loop - allows logout and re-login
+    while (1) {
+        g_logout_requested = FALSE;  // Reset flag
 
-    if (response != GTK_RESPONSE_OK) {
-        gtk_widget_destroy(login_dialog);
-        return 0;
+        // Show login dialog
+        LoginResult *login_result = perform_login(NULL);
+
+        // Check if user cancelled
+        if (login_result->is_cancelled || !login_result->conn) {
+            login_result_free(login_result);
+            break;  // Exit application
+        }
+
+        ClientConnection *conn = login_result->conn;
+        login_result_free(login_result);
+
+        // Route based on user type
+        if (conn->is_admin) {
+            // Admin dashboard
+            create_admin_dashboard(conn);
+            gtk_main();  // Blocks until logout or quit
+        } else {
+            // Regular user file browser
+            AppState *state = g_new0(AppState, 1);
+            state->conn = conn;
+            state->current_directory = 0;
+            strcpy(state->current_path, "/");
+
+            state->window = create_main_window(state);
+            gtk_widget_show_all(state->window);
+            refresh_file_list(state);
+
+            gtk_main();  // Blocks until logout or quit
+
+            // Cleanup state (connection freed in handlers)
+            g_free(state);
+        }
+
+        // If logout was not requested, break loop (user quit)
+        if (!g_logout_requested) {
+            break;
+        }
+        // Otherwise, loop continues to show login again
     }
 
-    // Get connection details
-    GtkWidget *server_entry = g_object_get_data(G_OBJECT(login_dialog), "server_entry");
-    GtkWidget *port_entry = g_object_get_data(G_OBJECT(login_dialog), "port_entry");
-    GtkWidget *username_entry = g_object_get_data(G_OBJECT(login_dialog), "username_entry");
-    GtkWidget *password_entry = g_object_get_data(G_OBJECT(login_dialog), "password_entry");
-
-    const char *server = gtk_entry_get_text(GTK_ENTRY(server_entry));
-    const char *port_str = gtk_entry_get_text(GTK_ENTRY(port_entry));
-    const char *username = gtk_entry_get_text(GTK_ENTRY(username_entry));
-    const char *password = gtk_entry_get_text(GTK_ENTRY(password_entry));
-
-    int port = atoi(port_str);
-
-    // Connect to server
-    ClientConnection *conn = client_connect(server, port);
-    if (!conn) {
-        show_error_dialog(NULL, "Failed to connect to server");
-        gtk_widget_destroy(login_dialog);
-        return 1;
-    }
-
-    // Login
-    if (client_login(conn, username, password) < 0) {
-        show_error_dialog(NULL, "Login failed. Invalid credentials.");
-        client_disconnect(conn);
-        gtk_widget_destroy(login_dialog);
-        return 1;
-    }
-
-    gtk_widget_destroy(login_dialog);
-
-    // Check if user is admin and route accordingly
-    if (conn->is_admin) {
-        // Show admin dashboard
-        create_admin_dashboard(conn);
-        gtk_main();
-    } else {
-        // Create regular file browser window
-        AppState *state = g_new0(AppState, 1);
-        state->conn = conn;
-        state->current_directory = 0;
-        strcpy(state->current_path, "/");
-
-        state->window = create_main_window(state);
-        gtk_widget_show_all(state->window);
-
-        // Load initial directory
-        refresh_file_list(state);
-
-        gtk_main();
-
-        // Cleanup
-        g_free(state);
-    }
-
-    // Final cleanup (connection closed in window destroy handlers)
     return 0;
 }

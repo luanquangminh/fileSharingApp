@@ -15,17 +15,25 @@ enum {
     NUM_COLS
 };
 
+// Global flag to distinguish logout from quit
+extern gboolean g_logout_requested;
+
 // Forward declarations
 static void on_create_user_clicked(GtkWidget *widget, AdminState *state);
 static void on_delete_user_clicked(GtkWidget *widget, AdminState *state);
 static void on_refresh_clicked(GtkWidget *widget, AdminState *state);
 static void on_user_row_activated(GtkTreeView *tree_view, GtkTreePath *path,
                                    GtkTreeViewColumn *column, AdminState *state);
+static void on_logout_activate(GtkWidget *widget, AdminState *state);
+static void on_quit_activate(GtkWidget *widget, AdminState *state);
 static void on_window_destroy(GtkWidget *widget, AdminState *state);
 
 // Refresh user list from server
 void refresh_user_list(AdminState *state) {
-    if (!state || !state->conn) return;
+    if (!state || !state->conn || !state->user_store || !state->window) {
+        printf("ERROR: Invalid state in refresh_user_list\n");
+        return;
+    }
 
     // Clear existing list
     gtk_list_store_clear(state->user_store);
@@ -33,7 +41,10 @@ void refresh_user_list(AdminState *state) {
     // Get users from server
     cJSON* response = client_admin_list_users(state->conn);
     if (!response) {
-        show_error_dialog(state->window, "Failed to retrieve user list");
+        printf("ERROR: client_admin_list_users returned NULL\n");
+        if (state->window && GTK_IS_WINDOW(state->window)) {
+            show_error_dialog(state->window, "Failed to retrieve user list");
+        }
         return;
     }
 
@@ -271,12 +282,60 @@ static void on_user_row_activated(GtkTreeView *tree_view, GtkTreePath *path,
     g_free(is_admin_str);
 }
 
+// Callback: Initial load (called from GTK main loop)
+static gboolean on_initial_load(gpointer user_data) {
+    AdminState *state = (AdminState*)user_data;
+    if (state && state->conn && state->window) {
+        printf("DEBUG: Initial load callback executing\n");
+        refresh_user_list(state);
+    } else {
+        printf("ERROR: Invalid state in initial load callback\n");
+    }
+    return FALSE;  // Don't call again
+}
+
+// Callback: Logout menu item
+static void on_logout_activate(GtkWidget *widget, AdminState *state) {
+    // Confirmation dialog
+    GtkWidget *dialog = gtk_message_dialog_new(
+        GTK_WINDOW(state->window),
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_MESSAGE_QUESTION,
+        GTK_BUTTONS_YES_NO,
+        "Are you sure you want to logout?"
+    );
+
+    gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+
+    if (response == GTK_RESPONSE_YES) {
+        g_logout_requested = TRUE;
+
+        if (state->conn) {
+            client_disconnect(state->conn);
+            state->conn = NULL;
+        }
+
+        gtk_main_quit();
+    }
+}
+
+// Callback: Quit menu item
+static void on_quit_activate(GtkWidget *widget, AdminState *state) {
+    gtk_main_quit();
+}
+
 // Callback: Window destroyed
 static void on_window_destroy(GtkWidget *widget, AdminState *state) {
-    if (state->conn) {
+    if (state && state->conn) {
         client_disconnect(state->conn);
+        state->conn = NULL;
     }
-    g_free(state);
+
+    if (state) {
+        g_free(state);
+    }
+
     gtk_main_quit();
 }
 
@@ -294,6 +353,32 @@ GtkWidget* create_admin_dashboard(ClientConnection *conn) {
     // Main container
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(state->window), vbox);
+
+    // Menu bar
+    GtkWidget *menubar = gtk_menu_bar_new();
+
+    // File menu
+    GtkWidget *file_menu = gtk_menu_new();
+    GtkWidget *file_item = gtk_menu_item_new_with_label("File");
+
+    // Logout menu item
+    GtkWidget *logout_item = gtk_menu_item_new_with_label("Logout");
+    g_signal_connect(logout_item, "activate", G_CALLBACK(on_logout_activate), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), logout_item);
+
+    // Separator
+    GtkWidget *separator = gtk_separator_menu_item_new();
+    gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), separator);
+
+    // Quit menu item
+    GtkWidget *quit_item = gtk_menu_item_new_with_label("Quit");
+    g_signal_connect(quit_item, "activate", G_CALLBACK(on_quit_activate), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), quit_item);
+
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(file_item), file_menu);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menubar), file_item);
+
+    gtk_box_pack_start(GTK_BOX(vbox), menubar, FALSE, FALSE, 0);
 
     // Toolbar
     GtkWidget *toolbar = gtk_toolbar_new();
@@ -358,9 +443,10 @@ GtkWidget* create_admin_dashboard(ClientConnection *conn) {
     gtk_box_pack_start(GTK_BOX(vbox), state->status_bar, FALSE, FALSE, 0);
     gtk_statusbar_push(GTK_STATUSBAR(state->status_bar), 0, "Ready");
 
-    // Initial refresh
-    refresh_user_list(state);
-
     gtk_widget_show_all(state->window);
+
+    // Schedule initial refresh to run after main loop starts
+    g_idle_add(on_initial_load, state);
+
     return state->window;
 }

@@ -1,6 +1,42 @@
 #include "gui.h"
 
+// Global flag to distinguish logout from quit
+extern gboolean g_logout_requested;
+
 static void on_quit_activate(GtkWidget *widget, AppState *state) {
+    gtk_main_quit();
+}
+
+static void on_logout_activate(GtkWidget *widget, AppState *state) {
+    // Confirmation dialog
+    GtkWidget *dialog = gtk_message_dialog_new(
+        GTK_WINDOW(state->window),
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_MESSAGE_QUESTION,
+        GTK_BUTTONS_YES_NO,
+        "Are you sure you want to logout?"
+    );
+
+    gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+
+    if (response == GTK_RESPONSE_YES) {
+        g_logout_requested = TRUE;
+
+        if (state->conn) {
+            client_disconnect(state->conn);
+            state->conn = NULL;
+        }
+
+        gtk_main_quit();
+    }
+}
+
+static void on_main_window_destroy(GtkWidget *widget, AppState *state) {
+    if (state->conn) {
+        client_disconnect(state->conn);
+        state->conn = NULL;
+    }
     gtk_main_quit();
 }
 
@@ -8,7 +44,7 @@ GtkWidget* create_main_window(AppState *state) {
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window), "File Sharing Client");
     gtk_window_set_default_size(GTK_WINDOW(window), 800, 600);
-    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    g_signal_connect(window, "destroy", G_CALLBACK(on_main_window_destroy), state);
 
     // Main vertical box
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -20,9 +56,21 @@ GtkWidget* create_main_window(AppState *state) {
     // File menu
     GtkWidget *file_menu = gtk_menu_new();
     GtkWidget *file_item = gtk_menu_item_new_with_label("File");
+
+    // Logout menu item
+    GtkWidget *logout_item = gtk_menu_item_new_with_label("Logout");
+    g_signal_connect(logout_item, "activate", G_CALLBACK(on_logout_activate), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), logout_item);
+
+    // Separator
+    GtkWidget *separator = gtk_separator_menu_item_new();
+    gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), separator);
+
+    // Quit menu item
     GtkWidget *quit_item = gtk_menu_item_new_with_label("Quit");
     g_signal_connect(quit_item, "activate", G_CALLBACK(on_quit_activate), state);
     gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), quit_item);
+
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(file_item), file_menu);
     gtk_menu_shell_append(GTK_MENU_SHELL(menubar), file_item);
 

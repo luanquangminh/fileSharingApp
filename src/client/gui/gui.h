@@ -15,8 +15,16 @@ typedef struct {
     char current_path[512];
 } AppState;
 
+// Login result structure
+typedef struct {
+    ClientConnection *conn;
+    int is_cancelled;
+} LoginResult;
+
 // GUI initialization and main
 GtkWidget* create_login_dialog(void);
+LoginResult* perform_login(GtkWidget *parent_window);
+void login_result_free(LoginResult *result);
 GtkWidget* create_main_window(AppState *state);
 
 // Dialogs

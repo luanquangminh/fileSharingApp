@@ -1,4 +1,6 @@
 #include "gui.h"
+#include <stdlib.h>
+#include <string.h>
 
 GtkWidget* create_login_dialog(void) {
     GtkWidget *dialog = gtk_dialog_new_with_buttons(
@@ -60,4 +62,75 @@ GtkWidget* create_login_dialog(void) {
 
     gtk_widget_show_all(content);
     return dialog;
+}
+
+LoginResult* perform_login(GtkWidget *parent_window) {
+    LoginResult *result = g_new0(LoginResult, 1);
+
+    while (1) {
+        GtkWidget *login_dialog = create_login_dialog();
+        if (parent_window) {
+            gtk_window_set_transient_for(GTK_WINDOW(login_dialog),
+                                        GTK_WINDOW(parent_window));
+        }
+
+        gint response = gtk_dialog_run(GTK_DIALOG(login_dialog));
+
+        if (response != GTK_RESPONSE_OK) {
+            result->is_cancelled = 1;
+            gtk_widget_destroy(login_dialog);
+            return result;
+        }
+
+        // Extract credentials (copy before destroying dialog)
+        GtkWidget *server_entry = g_object_get_data(G_OBJECT(login_dialog), "server_entry");
+        GtkWidget *port_entry = g_object_get_data(G_OBJECT(login_dialog), "port_entry");
+        GtkWidget *username_entry = g_object_get_data(G_OBJECT(login_dialog), "username_entry");
+        GtkWidget *password_entry = g_object_get_data(G_OBJECT(login_dialog), "password_entry");
+
+        char server[256], username[256], password[256], port_str[16];
+        strncpy(server, gtk_entry_get_text(GTK_ENTRY(server_entry)), sizeof(server) - 1);
+        strncpy(port_str, gtk_entry_get_text(GTK_ENTRY(port_entry)), sizeof(port_str) - 1);
+        strncpy(username, gtk_entry_get_text(GTK_ENTRY(username_entry)), sizeof(username) - 1);
+        strncpy(password, gtk_entry_get_text(GTK_ENTRY(password_entry)), sizeof(password) - 1);
+
+        server[sizeof(server) - 1] = '\0';
+        username[sizeof(username) - 1] = '\0';
+        password[sizeof(password) - 1] = '\0';
+        int port = atoi(port_str);
+
+        gtk_widget_destroy(login_dialog);
+
+        // Process pending events to fully destroy dialog
+        while (gtk_events_pending()) {
+            gtk_main_iteration();
+        }
+
+        // Attempt connection
+        ClientConnection *conn = client_connect(server, port);
+        if (!conn) {
+            show_error_dialog(parent_window,
+                "Failed to connect to server. Please check server address and try again.");
+            continue; // Retry
+        }
+
+        // Attempt authentication
+        if (client_login(conn, username, password) < 0) {
+            show_error_dialog(parent_window,
+                "Login failed. Invalid credentials.");
+            client_disconnect(conn);
+            continue; // Retry
+        }
+
+        // Success
+        result->conn = conn;
+        result->is_cancelled = 0;
+        return result;
+    }
+}
+
+void login_result_free(LoginResult *result) {
+    if (result) {
+        g_free(result);
+    }
 }
